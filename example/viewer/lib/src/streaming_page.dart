@@ -345,17 +345,29 @@ class _OptionsSheet extends StatefulWidget {
 
 class _OptionsSheetState extends State<_OptionsSheet> {
   late ViewOptions _view = widget.viewOptions;
-  late NtrConfig _streamPending = widget.streamConfig;
+  late int _jpegQuality = widget.streamConfig.jpegQuality;
+  late int _priorityMode = widget.streamConfig.priorityMode;
+  late int _priorityFactor = widget.streamConfig.priorityFactor;
+  late int _qosValue = widget.streamConfig.qosValue;
 
-  bool get _streamDirty => _streamPending != widget.streamConfig;
+  bool get _streamDirty {
+    final base = widget.streamConfig;
+    return _jpegQuality != base.jpegQuality ||
+        _priorityMode != base.priorityMode ||
+        _priorityFactor != base.priorityFactor ||
+        _qosValue != base.qosValue;
+  }
+
+  NtrConfig get _pendingConfig => widget.streamConfig.copyWith(
+        jpegQuality: _jpegQuality,
+        priorityMode: _priorityMode,
+        priorityFactor: _priorityFactor,
+        qosValue: _qosValue,
+      );
 
   void _emitView(ViewOptions next) {
     setState(() => _view = next);
     widget.onViewChanged(next);
-  }
-
-  void _setStream(NtrConfig next) {
-    setState(() => _streamPending = next);
   }
 
   @override
@@ -414,14 +426,13 @@ class _OptionsSheetState extends State<_OptionsSheet> {
               _slider(
                 label: 'JPEG quality',
                 hint: 'Higher = sharper, more bandwidth',
-                value: _streamPending.jpegQuality.toDouble(),
+                value: _jpegQuality.toDouble(),
                 min: 1,
                 max: 100,
                 divisions: 99,
-                display: '${_streamPending.jpegQuality}',
-                onChanged: (value) => _setStream(
-                  _streamPending.copyWith(jpegQuality: value.round()),
-                ),
+                display: '$_jpegQuality',
+                onChanged: (value) =>
+                    setState(() => _jpegQuality = value.round()),
               ),
               const SizedBox(height: 16),
               _priorityModePicker(),
@@ -429,33 +440,31 @@ class _OptionsSheetState extends State<_OptionsSheet> {
               _slider(
                 label: 'Priority factor',
                 hint: 'Strength of the priority above (0 = off)',
-                value: _streamPending.priorityFactor.toDouble(),
+                value: _priorityFactor.toDouble(),
                 min: 0,
                 max: 15,
                 divisions: 15,
-                display: '${_streamPending.priorityFactor}',
-                onChanged: (value) => _setStream(
-                  _streamPending.copyWith(priorityFactor: value.round()),
-                ),
+                display: '$_priorityFactor',
+                onChanged: (value) =>
+                    setState(() => _priorityFactor = value.round()),
               ),
               const SizedBox(height: 16),
               _slider(
                 label: 'QoS (bandwidth)',
                 hint: 'Upper bound on the device\'s outgoing rate',
-                value: _streamPending.qosValue.toDouble(),
+                value: _qosValue.toDouble(),
                 min: 10,
                 max: 127,
                 divisions: 117,
-                display: '${_streamPending.qosValue}',
-                onChanged: (value) => _setStream(
-                  _streamPending.copyWith(qosValue: value.round()),
-                ),
+                display: '$_qosValue',
+                onChanged: (value) =>
+                    setState(() => _qosValue = value.round()),
               ),
               const SizedBox(height: 20),
               FilledButton.icon(
                 onPressed: widget.busy || !_streamDirty
                     ? null
-                    : () => widget.onApplyStream(_streamPending),
+                    : () => widget.onApplyStream(_pendingConfig),
                 icon: const Icon(Icons.refresh),
                 label: Text(
                   _streamDirty
@@ -588,10 +597,9 @@ class _OptionsSheetState extends State<_OptionsSheet> {
             ButtonSegment(value: 1, label: Text('Top')),
             ButtonSegment(value: 2, label: Text('Neither')),
           ],
-          selected: <int>{_streamPending.priorityMode},
-          onSelectionChanged: (selection) => _setStream(
-            _streamPending.copyWith(priorityMode: selection.first),
-          ),
+          selected: <int>{_priorityMode},
+          onSelectionChanged: (selection) =>
+              setState(() => _priorityMode = selection.first),
         ),
       ],
     );
