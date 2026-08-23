@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:ntr/ntr.dart';
 
+import 'picture_in_picture.dart';
 import 'view_options.dart';
 
 /// Connects to a 3DS, performs the Remote Play handshake, and renders the
@@ -19,7 +20,8 @@ class StreamingPage extends StatefulWidget {
   State<StreamingPage> createState() => _StreamingPageState();
 }
 
-class _StreamingPageState extends State<StreamingPage> {
+class _StreamingPageState extends State<StreamingPage>
+    with WidgetsBindingObserver {
   late NtrConfig _streamConfig = NtrConfig(ipAddress: widget.ipAddress);
   NtrSession? _session;
   StreamSubscription<ScreenFrame>? _framesSubscription;
@@ -30,20 +32,51 @@ class _StreamingPageState extends State<StreamingPage> {
   Object? _error;
   bool _busy = false;
   bool _menuOpen = false;
+  final PictureInPicture _pip = PictureInPicture();
+  bool _pipSupported = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky));
+    unawaited(_setUpPictureInPicture());
     unawaited(_connect());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(_framesSubscription?.cancel());
     unawaited(_session?.dispose());
+    unawaited(_pip.dispose());
     unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Leaving the foreground is the hand-off moment: the native side needs a
+    // fresh frame in the layer before iOS opens the floating window.
+    _pip.setForeground(state == AppLifecycleState.resumed);
+  }
+
+  Future<void> _setUpPictureInPicture() async {
+    if (!PictureInPicture.isAvailable) return;
+    final supported = await _pip.initialize();
+    if (!mounted || !supported) return;
+    setState(() => _pipSupported = true);
+    _pip.setLayout(_viewOptions.layout, _viewOptions.quarterTurns);
+    await _pip.setEnabled(_viewOptions.pictureInPicture);
+  }
+
+  void _applyViewOptions(ViewOptions next) {
+    final previous = _viewOptions;
+    setState(() => _viewOptions = next);
+    _pip.setLayout(next.layout, next.quarterTurns);
+    if (next.pictureInPicture != previous.pictureInPicture) {
+      unawaited(_pip.setEnabled(next.pictureInPicture));
+    }
   }
 
   Future<void> _connect() async {
@@ -58,6 +91,11 @@ class _StreamingPageState extends State<StreamingPage> {
       _framesSubscription = session.frames.listen(
         (frame) {
           if (!mounted) return;
+          if (frame.screen == Screen.top) {
+            _pip.submitFrame(top: frame.jpeg);
+          } else {
+            _pip.submitFrame(bottom: frame.jpeg);
+          }
           setState(() {
             if (frame.screen == Screen.top) {
               _topJpeg = frame.jpeg;
@@ -139,8 +177,22 @@ class _StreamingPageState extends State<StreamingPage> {
           busy: _busy,
           viewOptions: _viewOptions,
           streamConfig: _streamConfig,
+          pipSupported: _pipSupported,
+          onStartPip: () async {
+            Navigator.of(sheetContext).pop();
+            if (await _pip.start() || !mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  _pip.lastError ??
+                      'Picture in Picture is not ready yet — wait for a '
+                          'frame to arrive.',
+                ),
+              ),
+            );
+          },
           onViewChanged: (next) {
-            if (mounted) setState(() => _viewOptions = next);
+            if (mounted) _applyViewOptions(next);
           },
           onApplyStream: (next) {
             Navigator.of(sheetContext).pop();
@@ -325,6 +377,8 @@ class _OptionsSheet extends StatefulWidget {
     required this.busy,
     required this.viewOptions,
     required this.streamConfig,
+    required this.pipSupported,
+    required this.onStartPip,
     required this.onViewChanged,
     required this.onApplyStream,
     required this.onDisconnect,
@@ -335,6 +389,8 @@ class _OptionsSheet extends StatefulWidget {
   final bool busy;
   final ViewOptions viewOptions;
   final NtrConfig streamConfig;
+  final bool pipSupported;
+  final VoidCallback onStartPip;
   final ValueChanged<ViewOptions> onViewChanged;
   final ValueChanged<NtrConfig> onApplyStream;
   final VoidCallback onDisconnect;
@@ -420,6 +476,31 @@ class _OptionsSheetState extends State<_OptionsSheet> {
                 onChanged: (value) =>
                     _emitView(_view.copyWith(smoothing: value)),
               ),
+              if (widget.pipSupported) ...<Widget>[
+                const SizedBox(height: 16),
+                const _SectionLabel('Picture in Picture'),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Floating window',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  subtitle: const Text(
+                    'Hands off automatically when you leave the app',
+                    style: TextStyle(color: Colors.white54),
+                  ),
+                  value: _view.pictureInPicture,
+                  onChanged: (value) =>
+                      _emitView(_view.copyWith(pictureInPicture: value)),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
+                  onPressed:
+                      _view.pictureInPicture ? widget.onStartPip : null,
+                  icon: const Icon(Icons.picture_in_picture_alt),
+                  label: const Text('Open now'),
+                ),
+              ],
               const SizedBox(height: 16),
               const _SectionLabel('Stream'),
               const SizedBox(height: 12),
