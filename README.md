@@ -174,6 +174,38 @@ streaming both screens with a chrome-less viewer, and exposes layout
 (stacked / side-by-side / top-only / bottom-only), rotation, and
 smoothing controls via a long-press menu.
 
+### Picture in Picture (iOS)
+
+Leaving the app on iOS hands the stream off to a floating Picture in
+Picture window, which keeps receiving frames while the app is in the
+background. Toggle it — or open the window without backgrounding — from
+the long-press menu.
+
+There is no `AVPlayer` behind the viewer, so the iOS runner drives PiP
+through `AVPictureInPictureController.ContentSource(sampleBufferDisplay
+Layer:playbackDelegate:)` (iOS 15+). `ios/Runner/PipFrameRenderer.swift`
+composites the JPEGs into `CMSampleBuffer`s — applying the same layout
+and rotation the viewer is using — and `ios/Runner/PipPlugin.swift`
+enqueues them into an `AVSampleBufferDisplayLayer` that AVKit reparents
+into the floating window.
+
+Three things are load-bearing if you lift this into your own app:
+
+- **`UIBackgroundModes: audio`** in `Info.plist`, plus an *active*
+  `AVAudioSession` in the `.playback` category. Without both, PiP
+  silently refuses to start. The viewer is silent, so it uses
+  `.mixWithOthers` and returns `false` from
+  `pictureInPictureControllerShouldProhibitBackgroundAudioPlayback` to
+  leave whatever else is playing alone.
+- **`canStartPictureInPictureAutomaticallyFromInline = true`** is what
+  makes backgrounding the app open the window. It only fires once the
+  layer holds recent content, so Dart keeps feeding frames at a trickle
+  (5 fps) while in the foreground and full rate once PiP is showing.
+- **The layer has to be in the view hierarchy and visible.** A
+  `FlutterView` draws over its own subviews, so the layer's host view is
+  inserted into the *window* behind the (opaque, full-screen) Flutter
+  view rather than into the Flutter view itself.
+
 ## Acknowledgements
 
 The wire protocol details were verified against the

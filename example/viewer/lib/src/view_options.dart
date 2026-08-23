@@ -22,6 +22,7 @@ class ViewOptions {
     this.layout = ScreenLayout.stacked,
     this.quarterTurns = 3,
     this.smoothing = true,
+    this.pictureInPicture = true,
   });
 
   final ScreenLayout layout;
@@ -32,15 +33,21 @@ class ViewOptions {
   /// When true the JPEG is bilinearly filtered; when false it is nearest.
   final bool smoothing;
 
+  /// iOS only: hand off to a Picture in Picture window when the app is
+  /// backgrounded. The window mirrors [layout] and [quarterTurns].
+  final bool pictureInPicture;
+
   ViewOptions copyWith({
     ScreenLayout? layout,
     int? quarterTurns,
     bool? smoothing,
+    bool? pictureInPicture,
   }) {
     return ViewOptions(
       layout: layout ?? this.layout,
       quarterTurns: quarterTurns ?? this.quarterTurns,
       smoothing: smoothing ?? this.smoothing,
+      pictureInPicture: pictureInPicture ?? this.pictureInPicture,
     );
   }
 }
